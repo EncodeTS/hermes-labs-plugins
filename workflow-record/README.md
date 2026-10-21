@@ -16,7 +16,7 @@ record  ->  /learn  ->  replay
 ## Install
 
 ```bash
-hermes plugins install NousResearch/hermes-labs-plugins#workflow-record --enable
+hermes plugins install workflow-record
 ```
 
 It adds one CLI command (`hermes record`) and one skill (`workflow-record:replay-recording`). No
