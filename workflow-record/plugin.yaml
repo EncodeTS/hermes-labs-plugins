@@ -1,0 +1,10 @@
+name: workflow-record
+version: 0.1.0
+description: >
+  hermes record: demonstrate a browser workflow once (clicks, field values,
+  Enter presses, navigations) over CDP and save it as a recording, with
+  passwords masked inside the page as {SECRET:name} placeholders. A bundled
+  skill tells /learn how to turn the recording into a skill that replays
+  the flow with the browser tools.
+author: "Nous Research"
+homepage: https://github.com/NousResearch/hermes-labs-plugins/tree/main/workflow-record
