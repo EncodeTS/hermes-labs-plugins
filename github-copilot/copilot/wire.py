@@ -14,10 +14,10 @@ from .helpers import base_url_host_matches, base_url_hostname
 
 # Copilot's own API host family (individual, business and enterprise subdomains).
 _COPILOT_HOST = "githubcopilot.com"
-# Hosts that bill a request as premium when it carries ``x-initiator: user``: the whole Copilot family
-# (the token exchange hands out api.individual./api.business./api.enterprise.githubcopilot.com) and
-# GitHub Models.
-_INITIATOR_HOSTS = (_COPILOT_HOST, "models.github.ai")
+# Hosts whose first call of a user turn carries ``x-initiator: user`` (Hermes core's set). Every other host,
+# including the plan hosts the token exchange hands out (api.individual./api.business./api.enterprise.),
+# keeps the client default ``agent`` by design; see README § Premium requests.
+_INITIATOR_HOSTS = ("api.githubcopilot.com", "models.github.ai")
 
 
 def is_copilot_host(base_url: str) -> bool:
@@ -67,7 +67,7 @@ class CopilotWireMixin:
         return editor_headers(is_vision=has_images) if is_copilot_host(base_url) else None
 
     def request_headers(self, *, base_url: str, model: str = "", user_initiated: bool = False) -> dict[str, str]:
-        # First call of a user turn bills premium; follow-ups keep the client default ``x-initiator: agent``.
+        # First call of a user turn says ``user``; follow-ups keep the client default ``x-initiator: agent``.
         if user_initiated and any(base_url_host_matches(base_url, h) for h in _INITIATOR_HOSTS):
             return {"x-initiator": "user"}
         return {}

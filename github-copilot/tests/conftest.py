@@ -13,6 +13,7 @@ import os
 import sys
 import threading
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -68,6 +69,53 @@ def record_io():
         yield events
     finally:
         _RECORDERS.pop(threading.get_ident(), None)
+
+
+class SentRequest(NamedTuple):
+    headers: dict[str, str]
+    body: dict
+
+
+def offline_chat_turn(base_url: str, *, model: str = "gpt-5.4", message: str = "hi",
+                      **agent_kwargs) -> list[SentRequest]:
+    """Run one real ``AIAgent.chat`` turn against *base_url* with the HTTP transport replaced by a stand-in
+    that answers every chat request with "ok"; return the chat requests as they went on the wire."""
+    import json
+    from unittest.mock import patch
+
+    import httpx
+    import openai
+
+    from run_agent import AIAgent
+
+    sent: list[SentRequest] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content or b"{}")
+        if "messages" in body:
+            sent.append(SentRequest({k.lower(): v for k, v in request.headers.items()}, body))
+        delta = {"role": "assistant", "content": "ok"}
+        if body.get("stream"):
+            chunks = [{"choices": [{"index": 0, "delta": delta, "finish_reason": None}]},
+                      {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}]
+            sse = "".join(
+                "data: " + json.dumps({"id": "c", "object": "chat.completion.chunk", "created": 0,
+                                       "model": model, **c}) + "\n\n" for c in chunks) + "data: [DONE]\n\n"
+            return httpx.Response(200, text=sse, headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json={
+            "id": "c", "object": "chat.completion", "created": 0, "model": model,
+            "choices": [{"index": 0, "message": delta, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}})
+
+    def offline_openai(**kwargs):
+        return openai.OpenAI(**{**kwargs, "http_client": httpx.Client(transport=httpx.MockTransport(answer))})
+
+    options = {"api_key": "tid=offline", "provider": "copilot", "api_mode": "chat_completions",
+               "quiet_mode": True, "skip_context_files": True, "skip_memory": True, "enabled_toolsets": [],
+               **agent_kwargs}
+    with patch("agent.process_bootstrap.OpenAI", side_effect=offline_openai):
+        AIAgent(base_url=base_url, model=model, **options).chat(message)
+    return sent
 
 
 import providers  # noqa: E402
