@@ -49,6 +49,13 @@ Supported token types: OAuth `gho_*`, GitHub App `ghu_*`, fine-grained PAT `gith
 Copilot Requests permission. Classic PATs (`ghp_*`) are rejected by the Copilot API.
 `COPILOT_API_BASE_URL` overrides the API base URL.
 
+`GH_TOKEN` and `GITHUB_TOKEN` are shared with other GitHub tools, so on their own they never make Hermes
+contact GitHub. The plugin calls GitHub (token exchange, model list) only once you have chosen Copilot:
+`COPILOT_GITHUB_TOKEN` is set, `copilot` appears in `config.yaml` (`model`, `fallback_providers` /
+`fallback_model`, `delegation`, an `auxiliary` task, a MoA slot), you signed in with `hermes auth add
+copilot`, or you are in `hermes model` → GitHub Copilot. Until then the model picker shows the curated
+Copilot list.
+
 **`copilot-acp`:** install the CLI (`npm install -g @github/copilot`) and run `copilot login`. Hermes
 starts `copilot --acp --stdio` per request; point it elsewhere with `HERMES_COPILOT_ACP_COMMAND` (or
 `COPILOT_CLI_PATH`) and `HERMES_COPILOT_ACP_ARGS`.

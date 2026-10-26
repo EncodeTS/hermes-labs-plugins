@@ -80,6 +80,21 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "any_core: runs even when the plugin is inert on this core")
 
 
+# Modules that import the plugin's profiles at import time. A core without the seams rejects the profile
+# kwargs (``TypeError`` at collection), so on an inert core they are not collected at all.
+_ANY_CORE_MODULES = frozenset({"conftest.py", "test_plugin_registration.py"})
+
+
+def pytest_ignore_collect(collection_path, config):
+    if not PLUGIN.ACTIVE and collection_path.suffix == ".py" and collection_path.name not in _ANY_CORE_MODULES:
+        return True
+    return None
+
+
+def pytest_report_header(config):
+    return None if PLUGIN.ACTIVE else f"github-copilot plugin inert: {PLUGIN.inert_reason()}; only any_core tests run"
+
+
 def pytest_collection_modifyitems(config, items):
     if PLUGIN.ACTIVE:
         return
