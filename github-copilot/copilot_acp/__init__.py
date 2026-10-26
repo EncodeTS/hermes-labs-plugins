@@ -2,13 +2,11 @@
 
 copilot-acp does not speak OpenAI-over-HTTP: it drives an external ACP subprocess over
 stdio, so the profile supplies its own client via :meth:`ProviderProfile.create_client`.
-An out-of-tree ACP provider (``~/.hermes/plugins/model-providers/`` or a pip entry point)
-uses the same three lines without touching core.
+Registered by the plugin's top-level ``__init__`` next to the ``copilot`` profile.
 """
 
 from typing import Any
 
-from providers import register_provider
 from providers.base import ProviderProfile
 
 from .auth_rows import AUTH_ROW_FIELDS
@@ -21,12 +19,10 @@ class CopilotACPProfile(ProviderProfile):
     """GitHub Copilot ACP — external process, no REST models endpoint."""
 
     def external_auth_evidence(self) -> tuple[bool, str | None] | None:
-        """The Copilot CLI's token stores, read without spawning it; None (binary check) without the
-        copilot plugin that owns the token rules."""
-        try:
-            from plugins.model_providers.copilot.credentials import copilot_cli_auth_evidence
-        except ImportError:
-            return None
+        """The Copilot CLI's token stores, read without spawning it (rules owned by the sibling
+        ``copilot`` profile's credentials module)."""
+        from ..copilot.credentials import copilot_cli_auth_evidence
+
         return copilot_cli_auth_evidence()
 
     def create_client(self, **client_kwargs: Any) -> Any:
@@ -95,5 +91,3 @@ copilot_acp = CopilotACPProfile(
     picker_catalog=acp_picker_catalog, static_models=("copilot-acp",),
     **SETUP_FIELDS, **PICKER_FIELDS, **AUTH_ROW_FIELDS,
 )
-
-register_provider(copilot_acp)

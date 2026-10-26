@@ -7,7 +7,6 @@ this profile covers the chat_completions remainder: editor attribution headers
 
 from typing import Any
 
-from providers import register_provider
 from providers.base import ProviderProfile
 
 from .auth_rows import AUTH_ROW_FIELDS
@@ -50,5 +49,3 @@ copilot = CopilotProfile(
     hostnames=HOSTNAMES, metadata_hostnames=METADATA_HOSTNAMES, models_dev_id=MODELS_DEV_ID, **CATALOG_FIELDS,
     **PICKER_FIELDS, **AUTH_ROW_FIELDS,
 )
-
-register_provider(copilot)
