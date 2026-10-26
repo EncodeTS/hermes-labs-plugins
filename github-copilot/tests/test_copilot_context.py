@@ -86,7 +86,7 @@ class TestGetCopilotModelContext:
 
 
 
-    @patch("hermes_cli.models._urlopen_model_catalog_request")
+    @patch("github_copilot_plugin.copilot.helpers.open_url")
     def test_fetch_github_model_catalog_uses_short_lived_cache(self, mock_urlopen):
         import json as _json
         from github_copilot_plugin.copilot import catalog as mod
@@ -129,7 +129,7 @@ class TestGetCopilotModelContext:
         assert [item["id"] for item in third] == ["gpt-4.1"]
         assert mock_urlopen.call_count == 1
 
-    @patch("hermes_cli.models._urlopen_model_catalog_request")
+    @patch("github_copilot_plugin.copilot.helpers.open_url")
     def test_fetch_github_model_catalog_cache_expires_after_ttl(self, mock_urlopen):
         import json as _json
         import time as _time
@@ -169,7 +169,7 @@ class TestGetCopilotModelContext:
         mod.fetch_github_model_catalog(api_key="token")
         assert mock_urlopen.call_count == 2
 
-    @patch("hermes_cli.models._urlopen_model_catalog_request")
+    @patch("github_copilot_plugin.copilot.helpers.open_url")
     def test_fetch_github_model_catalog_cache_misses_on_credential_change(self, mock_urlopen):
         import json as _json
         from github_copilot_plugin.copilot import catalog as mod

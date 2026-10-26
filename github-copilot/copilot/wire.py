@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from utils import base_url_host_matches, base_url_hostname
+from .helpers import base_url_host_matches, base_url_hostname
 
 # Copilot's own API host family (individual, business and enterprise subdomains).
 _COPILOT_HOST = "githubcopilot.com"

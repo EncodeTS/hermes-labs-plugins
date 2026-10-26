@@ -22,11 +22,10 @@ class TestCopilotCatalogApiKeyResolution:
 
     def test_falls_back_to_pool_oauth_token(self):
         """Empty env → walk credential_pool.copilot[] for an OAuth access_token."""
-        with patch(
-            "hermes_cli.auth.resolve_api_key_provider_credentials",
-            return_value={"api_key": ""},
+        with patch.object(
+            copilot_credentials, "resolve_copilot_token", return_value=("", ""),
         ), patch(
-            "hermes_cli.auth.read_credential_pool",
+            "agent.credential_pool.read_credential_pool",
             return_value=[{"access_token": "gho_abc123"}],
         ), patch.object(copilot_credentials, "exchange_copilot_token",
             return_value=("tid_exchanged_xyz", 1234567890.0),
@@ -47,11 +46,10 @@ class TestCopilotCatalogApiKeyResolution:
                 raise ValueError("Copilot token exchange failed: HTTP 401")
             return ("tid_from_second", 1234567890.0)
 
-        with patch(
-            "hermes_cli.auth.resolve_api_key_provider_credentials",
-            return_value={"api_key": ""},
+        with patch.object(
+            copilot_credentials, "resolve_copilot_token", return_value=("", ""),
         ), patch(
-            "hermes_cli.auth.read_credential_pool",
+            "agent.credential_pool.read_credential_pool",
             return_value=[
                 {"access_token": "gho_unsupported_account"},
                 {"access_token": "gho_valid_token"},

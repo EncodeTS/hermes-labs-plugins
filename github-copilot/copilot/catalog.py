@@ -1,9 +1,7 @@
 """Copilot catalog and model metadata: hosts, models.dev id, the live ``/models`` catalog (picker,
 context windows, id normalization, reasoning efforts) and the curated fallback list.
 
-Fills the generic ProviderProfile catalog seams (``providers/base.py`` L4 + I2-cat blocks). Core
-helpers (``hermes_cli.models._get_json`` / ``_api_key_credentials``) are imported at call time, so
-this module never imports ``hermes_cli`` while the provider registry is being discovered.
+Fills the generic ProviderProfile catalog seams (``providers/base.py`` L4 + I2-cat blocks).
 """
 
 from __future__ import annotations
@@ -12,6 +10,8 @@ import copy
 import logging
 import time
 from typing import Any, Optional
+
+from .helpers import ASTRA_EFFORTS, clamp_effort, get_json, is_astra_model
 
 logger = logging.getLogger(__name__)
 
@@ -79,17 +79,18 @@ def _first_exchangeable_copilot_token(raw_tokens) -> str:
 
 
 def _resolve_copilot_catalog_api_key() -> str:
-    """Best-effort GitHub token for the Copilot catalog: env vars via
-    ``resolve_api_key_provider_credentials``, then ``auth.json`` ``credential_pool.copilot[]`` (a
-    ``hermes auth add copilot`` login). Without the pool, keyless users see the picker fall back to
-    the stale curated list on a silent 401."""
+    """Best-effort Copilot API token for the catalog: the exchanged env token (COPILOT_GITHUB_TOKEN,
+    GH_TOKEN, GITHUB_TOKEN), then ``auth.json`` ``credential_pool.copilot[]`` (a ``hermes auth add
+    copilot`` login). Without the pool, keyless users see the picker fall back to the stale curated
+    list on a silent 401."""
     def _env_token() -> str:
-        from hermes_cli.models import _api_key_credentials
+        from .credentials import get_copilot_api_token, resolve_copilot_token
 
-        return _api_key_credentials("copilot")[0]
+        raw, _source = resolve_copilot_token()
+        return get_copilot_api_token(raw)[0] if raw else ""
 
     def _pool_token() -> str:
-        from hermes_cli.auth import read_credential_pool
+        from agent.credential_pool import read_credential_pool
 
         return _first_exchangeable_copilot_token(
             entry.get("access_token") for entry in read_credential_pool("copilot") if isinstance(entry, dict))
@@ -170,8 +171,6 @@ def fetch_github_model_catalog(
     """Fetch the live GitHub Copilot model catalog for this account."""
     global _github_model_catalog_cache, _github_model_catalog_cache_key
     global _github_model_catalog_cache_time
-    from hermes_cli.models import _get_json
-
     if (
         _github_model_catalog_cache is not None
         and _github_model_catalog_cache_key == api_key
@@ -186,7 +185,7 @@ def fetch_github_model_catalog(
 
     for headers in attempts:
         try:
-            items = _payload_items(_get_json(COPILOT_MODELS_URL, timeout=timeout, headers=headers))
+            items = _payload_items(get_json(COPILOT_MODELS_URL, timeout=timeout, headers=headers))
         except Exception:
             continue
         models = _copilot_text_models(items)
@@ -210,9 +209,8 @@ def _fetch_github_models(api_key: Optional[str] = None, timeout: float = 5.0) ->
 
 
 def copilot_picker_catalog(force_refresh: bool = False) -> Optional[list[str]]:
-    """The account's live catalog ids, else the curated list marked as a placeholder."""
-    from hermes_cli.models import CuratedFallbackModels, _PROVIDER_MODELS
-
+    """The account's live catalog ids, else None: core then serves ``STATIC_MODELS`` (the profile's
+    ``static_models``) marked as a placeholder, never cached as the account's catalog."""
     from .activation import github_calls_allowed
 
     try:
@@ -223,7 +221,7 @@ def copilot_picker_catalog(force_refresh: bool = False) -> Optional[list[str]]:
             return live
     except Exception:  # the picker degrades to the curated list on any catalog failure
         logger.debug("copilot live catalog fetch failed", exc_info=True)
-    return CuratedFallbackModels(_PROVIDER_MODELS.get("copilot", list(STATIC_MODELS)))
+    return None
 
 
 def _is_github_models_base_url(base_url: Optional[str]) -> bool:
@@ -319,8 +317,6 @@ def clamp_github_reasoning_effort(effort: Any, supported: list[str]) -> str:
     """Copilot/GitHub Models effort for a non-empty *supported* list: the level itself when listed,
     else the nearest WEAKER listed level; bespoke names the ladder can't place fall to ``medium``
     (or the first listed level)."""
-    from agent.reasoning_effort import clamp_effort
-
     effort = str(effort or "medium").strip().lower()
     if effort not in supported:
         effort = clamp_effort(effort, supported)
@@ -330,14 +326,12 @@ def clamp_github_reasoning_effort(effort: Any, supported: list[str]) -> str:
 
 
 def _github_reasoning_efforts_for_model_id(model_id: str) -> list[str]:
-    from agent.reasoning_effort import CODEX_ASTRA_EFFORTS, is_astra_model
-
     raw = (model_id or "").strip().lower()
     if raw.startswith(("openai/o1", "openai/o3", "openai/o4", "o1", "o3", "o4")):
         return list(REASONING_EFFORTS_O_SERIES)
     normalized = normalize_copilot_model_id(model_id).lower()
     if is_astra_model(normalized):
-        return list(CODEX_ASTRA_EFFORTS)
+        return list(ASTRA_EFFORTS)
     if normalized.startswith("gpt-5"):
         return list(REASONING_EFFORTS_GPT5)
     return []
