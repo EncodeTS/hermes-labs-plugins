@@ -1,10 +1,9 @@
 """Tests for github_copilot_plugin.copilot.credentials — Copilot token validation and resolution."""
 
 import pytest
-from unittest.mock import patch
 import providers as _providers
+from conftest import record_io
 _providers.get_provider_profile("copilot")  # imports the copilot plugin package (credentials module)
-from github_copilot_plugin.copilot import credentials as copilot_credentials
 
 class TestTokenValidation:
     """Token type validation."""
@@ -48,11 +47,11 @@ class TestResolveToken:
         monkeypatch.delenv("COPILOT_GITHUB_TOKEN", raising=False)
         monkeypatch.delenv("GH_TOKEN", raising=False)
         monkeypatch.setenv("GITHUB_TOKEN", "ghp_classic_pat_nope")
-        with patch("subprocess.Popen", side_effect=AssertionError("spawned a subprocess")) as popen:
+        with record_io() as events:
             token, source = resolve_copilot_token()
         assert token == ""
         assert source == ""
-        popen.assert_not_called()
+        assert [e for e in events if e[0] == "spawn"] == []
 
     def test_all_env_vars_invalid_resolves_nothing_and_runs_no_subprocess(self, monkeypatch):
         """All three env vars set to classic PATs → nothing, and no gh CLI call."""
@@ -60,11 +59,11 @@ class TestResolveToken:
         monkeypatch.setenv("COPILOT_GITHUB_TOKEN", "ghp_one")
         monkeypatch.setenv("GH_TOKEN", "ghp_two")
         monkeypatch.setenv("GITHUB_TOKEN", "ghp_three")
-        with patch("subprocess.Popen", side_effect=AssertionError("spawned a subprocess")) as popen:
+        with record_io() as events:
             token, source = resolve_copilot_token()
         assert token == ""
         assert source == ""
-        popen.assert_not_called()
+        assert [e for e in events if e[0] == "spawn"] == []
 
 
 class TestRequestHeaders:

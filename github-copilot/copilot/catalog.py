@@ -242,8 +242,9 @@ def get_copilot_model_context(model_id: str, api_key: Optional[str] = None) -> O
 
     # Keyed on the credential like fetch_github_model_catalog: the catalog (and its limits) is
     # per-account, so another profile's token must not be served this entry.
-    from agent.credential_persistence import fingerprint_secret_value
-    key_fp = fingerprint_secret_value(api_key)
+    from .credentials import _token_fingerprint
+
+    key_fp = _token_fingerprint(api_key) if api_key else None
     if (_copilot_context_cache and _copilot_context_cache_key == key_fp
             and (time.time() - _copilot_context_cache_time < _COPILOT_CONTEXT_CACHE_TTL)):
         return _copilot_context_cache.get(model_id)

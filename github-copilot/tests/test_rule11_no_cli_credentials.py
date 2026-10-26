@@ -7,27 +7,12 @@ from __future__ import annotations
 import json
 import os
 import stat
-import sys
 from pathlib import Path
 
 import pytest
 
 import providers
-
-_events: list[tuple[str, str]] = []
-_recording = False
-
-
-def _audit(event: str, args: tuple) -> None:
-    if not _recording:
-        return
-    if event == "open" and args and isinstance(args[0], (str, bytes, os.PathLike)):
-        _events.append(("open", os.fsdecode(args[0])))
-    elif event in ("subprocess.Popen", "os.posix_spawn", "os.exec", "os.spawn", "os.system"):
-        _events.append(("spawn", repr(args[:2])))
-
-
-sys.addaudithook(_audit)  # audit hooks cannot be removed; it only records while ``_recording`` is set
+from conftest import record_io
 
 TOKEN = "gho_cliStoreTokenXXXXXXXXXXXXXXXX"
 
@@ -55,19 +40,9 @@ def cli_credential_stores(tmp_path, monkeypatch):
     return [str(p) for p in files]
 
 
-def _record(fn):
-    global _recording
-    _events.clear()
-    _recording = True
-    try:
-        return fn()
-    finally:
-        _recording = False
-
-
-def _assert_untouched(stores):
-    opened = [path for kind, path in _events if kind == "open" and any(path == s for s in stores)]
-    spawned = [args for kind, args in _events if kind == "spawn"]
+def _assert_untouched(events, stores):
+    opened = [path for kind, path in events if kind == "open" and path in stores]
+    spawned = [args for kind, args in events if kind == "spawn"]
     assert opened == [], f"read a CLI token file: {opened}"
     assert spawned == [], f"spawned a process: {spawned}"
 
@@ -89,7 +64,8 @@ def test_no_hermes_credential_means_no_token_despite_cli_stores(cli_credential_s
             copilot.account_status(),
         )
 
-    token, secret, seeded, catalog_key, evidence, status = _record(run)
+    with record_io() as events:
+        token, secret, seeded, catalog_key, evidence, status = run()
 
     assert token == ("", "")
     assert secret == ("", "")
@@ -97,7 +73,7 @@ def test_no_hermes_credential_means_no_token_despite_cli_stores(cli_credential_s
     assert catalog_key == ""
     assert evidence == (False, None)
     assert status["logged_in"] is False
-    _assert_untouched(cli_credential_stores)
+    _assert_untouched(events, cli_credential_stores)
 
 
 def test_env_token_still_resolves_without_touching_cli_stores(cli_credential_stores, monkeypatch):
@@ -106,11 +82,12 @@ def test_env_token_still_resolves_without_touching_cli_stores(cli_credential_sto
     monkeypatch.setenv("GH_TOKEN", "gho_fromHermesEnvXXXXXXXXXXXXXXX")
     acp = providers.get_provider_profile("copilot-acp")
 
-    token, evidence = _record(lambda: (credentials.resolve_copilot_token(), acp.external_auth_evidence()))
+    with record_io() as events:
+        token, evidence = credentials.resolve_copilot_token(), acp.external_auth_evidence()
 
     assert token == ("gho_fromHermesEnvXXXXXXXXXXXXXXX", "GH_TOKEN")
     assert evidence == (True, "env: GH_TOKEN")
-    _assert_untouched(cli_credential_stores)
+    _assert_untouched(events, cli_credential_stores)
 
 
 def test_core_is_not_asked_to_fingerprint_cli_token_files():
