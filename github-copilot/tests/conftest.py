@@ -7,8 +7,11 @@ marked ``any_core`` is then skipped with the reason (hermes-agent#144788 adds th
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import os
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -36,6 +39,35 @@ def load_plugin_package(name: str = "github_copilot_plugin"):
         sys.modules.pop(name, None)
         raise
     return module
+
+
+_RECORDERS: dict[int, list[tuple[str, str]]] = {}
+_SPAWN_EVENTS = ("subprocess.Popen", "os.posix_spawn", "os.exec", "os.spawn", "os.system")
+
+
+def _audit(event: str, args: tuple) -> None:
+    events = _RECORDERS.get(threading.get_ident())
+    if events is None:
+        return
+    if event == "open" and args and isinstance(args[0], (str, bytes, os.PathLike)):
+        events.append(("open", os.fsdecode(args[0])))
+    elif event in _SPAWN_EVENTS:
+        events.append(("spawn", repr(args[:2])))
+
+
+sys.addaudithook(_audit)  # cannot be removed; records only inside ``record_io()`` on that thread
+
+
+@contextlib.contextmanager
+def record_io():
+    """Files opened and processes spawned by THIS thread inside the block (other threads' work, e.g. a
+    previous test's lingering subprocess reader, never lands here)."""
+    events: list[tuple[str, str]] = []
+    _RECORDERS[threading.get_ident()] = events
+    try:
+        yield events
+    finally:
+        _RECORDERS.pop(threading.get_ident(), None)
 
 
 import providers  # noqa: E402

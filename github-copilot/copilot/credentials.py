@@ -441,8 +441,7 @@ _RAW_DEGRADATION_WARNED: set[str] = set()
 
 def _warn_raw_degradation_once(token: str) -> None:
     """WARN once per token per process when Copilot exchange degrades to raw token (#114740)."""
-    from agent.credential_persistence import fingerprint_secret_value
-    fingerprint = fingerprint_secret_value(token) or "unknown"
+    fingerprint = _token_fingerprint(token) if token else "unknown"
     if fingerprint in _RAW_DEGRADATION_WARNED:
         return
     _RAW_DEGRADATION_WARNED.add(fingerprint)
