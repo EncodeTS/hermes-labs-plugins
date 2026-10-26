@@ -19,8 +19,8 @@ class CopilotACPProfile(ProviderProfile):
     """GitHub Copilot ACP — external process, no REST models endpoint."""
 
     def external_auth_evidence(self) -> tuple[bool, str | None] | None:
-        """The Copilot CLI's token stores, read without spawning it (rules owned by the sibling
-        ``copilot`` profile's credentials module)."""
+        """Sign-in evidence without spawning the CLI: a supported env token only; the CLI's own token
+        files are never read (rules owned by the sibling ``copilot`` credentials module)."""
         from ..copilot.credentials import copilot_cli_auth_evidence
 
         return copilot_cli_auth_evidence()

@@ -9,9 +9,7 @@ this module never imports ``hermes_cli`` while the provider registry is being di
 from __future__ import annotations
 
 import copy
-import json
 import logging
-import os
 import time
 from typing import Any, Optional
 
@@ -24,8 +22,6 @@ HOSTNAMES = ("githubcopilot.com", "models.github.ai")
 # The ~8K-capped GitHub Models free tier shares the Copilot catalog only (model metadata lookups).
 METADATA_HOSTNAMES = ("models.inference.ai.azure.com",)
 MODELS_DEV_ID = "github-copilot"
-# Credential stores whose change re-keys every cached provider catalog (core's catalog fingerprint).
-CATALOG_CREDENTIAL_FILES = ("~/.config/github-copilot/hosts.json",)
 
 COPILOT_BASE_URL = "https://api.githubcopilot.com"
 COPILOT_MODELS_URL = f"{COPILOT_BASE_URL}/models"
@@ -82,25 +78,11 @@ def _first_exchangeable_copilot_token(raw_tokens) -> str:
     return ""
 
 
-def _copilot_cli_config_tokens() -> list[str]:
-    """``copilotTokens`` from the GitHub Copilot CLI's own plaintext store (JSONC — strip
-    ``//``-comment lines), written by ``copilot login`` on hosts without an OS keychain."""
-    cli_config = os.path.expanduser("~/.copilot/config.json")
-    if not os.path.isfile(cli_config):
-        return []
-    with open(cli_config, "r", encoding="utf-8-sig", errors="ignore") as fh:
-        raw_text = "\n".join(
-            line for line in fh.read().splitlines() if not line.lstrip().startswith("//"))
-    data = json.loads(raw_text) if raw_text.strip() else {}
-    tokens = data.get("copilotTokens")
-    return list(tokens.values()) if isinstance(tokens, dict) else []
-
-
 def _resolve_copilot_catalog_api_key() -> str:
-    """Best-effort GitHub token for the Copilot catalog: env vars / ``gh auth token`` via
-    ``resolve_api_key_provider_credentials``, then ``auth.json`` ``credential_pool.copilot[]``, then
-    ``~/.copilot/config.json`` ``copilotTokens`` (the ACP CLI's own store). Without the latter two,
-    keyless users see the picker fall back to the stale curated list on a silent 401."""
+    """Best-effort GitHub token for the Copilot catalog: env vars via
+    ``resolve_api_key_provider_credentials``, then ``auth.json`` ``credential_pool.copilot[]`` (a
+    ``hermes auth add copilot`` login). Without the pool, keyless users see the picker fall back to
+    the stale curated list on a silent 401."""
     def _env_token() -> str:
         from hermes_cli.models import _api_key_credentials
 
@@ -112,11 +94,7 @@ def _resolve_copilot_catalog_api_key() -> str:
         return _first_exchangeable_copilot_token(
             entry.get("access_token") for entry in read_credential_pool("copilot") if isinstance(entry, dict))
 
-    sources = (
-        _env_token,
-        _pool_token,
-        lambda: _first_exchangeable_copilot_token(_copilot_cli_config_tokens()),
-    )
+    sources = (_env_token, _pool_token)
     for source in sources:
         try:
             token = source()
@@ -387,10 +365,7 @@ def github_model_reasoning_efforts(
 
 
 # ProviderProfile kwargs filling the I2-cat catalog seams.
-CATALOG_FIELDS = dict(
-    picker_catalog=copilot_picker_catalog, static_models=STATIC_MODELS,
-    catalog_credential_files=CATALOG_CREDENTIAL_FILES,
-)
+CATALOG_FIELDS = dict(picker_catalog=copilot_picker_catalog, static_models=STATIC_MODELS)
 
 
 class CopilotCatalogMixin:

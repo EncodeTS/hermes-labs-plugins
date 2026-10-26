@@ -1,6 +1,11 @@
-"""GitHub Copilot credentials: token resolution (order matches the Copilot CLI: COPILOT_GITHUB_TOKEN,
-GH_TOKEN, GITHUB_TOKEN, then ``gh auth token``), device-code login, the GitHub→Copilot token exchange,
-and :class:`CopilotCredentialsMixin`, which fills core's generic ``ProviderProfile`` credential seams."""
+"""GitHub Copilot credentials: token resolution (COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN, the order
+the Copilot CLI uses, read through Hermes' secret scope), device-code login, the GitHub→Copilot token
+exchange, and :class:`CopilotCredentialsMixin`, which fills core's generic ``ProviderProfile`` credential
+seams.
+
+Catalog rule 11 (credentials only through Hermes): this plugin never runs ``gh auth token`` and never
+reads the gh CLI's or the Copilot CLI's token files. A GitHub token reaches it only through Hermes:
+the env vars above (``.env`` or the process environment) or a ``hermes auth add copilot`` pool row."""
 
 from __future__ import annotations
 
@@ -8,10 +13,7 @@ import contextlib
 import hashlib
 import json
 import logging
-import os
 import re
-import shutil
-import subprocess
 import threading
 import time
 import urllib.parse
@@ -19,7 +21,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from hermes_cli._subprocess_compat import IS_WINDOWS, windows_hide_flags
+from agent.secret_scope import get_secret
 from utils import atomic_json_write
 
 logger = logging.getLogger(__name__)
@@ -45,9 +47,8 @@ def validate_copilot_token(token: str) -> tuple[bool, str]:
         return False, (
             "Classic Personal Access Tokens (ghp_*) are not supported by the "
             "Copilot API. Use one of:\n"
-            "  → `copilot login` or `hermes model` to authenticate via OAuth\n"
-            "  → A fine-grained PAT (github_pat_*) with Copilot Requests permission\n"
-            "  → `gh auth login` with the default device code flow (produces gho_* tokens)")
+            "  → `hermes auth add copilot` to sign in with GitHub (device code)\n"
+            "  → A fine-grained PAT (github_pat_*) with Copilot Requests permission")
     if not token.startswith(_SUPPORTED_PREFIXES):
         return False, (
             "Unsupported GitHub token format for the Copilot API. "
@@ -56,97 +57,17 @@ def validate_copilot_token(token: str) -> tuple[bool, str]:
 
 
 def resolve_copilot_token() -> tuple[str, str]:
-    """Resolve a GitHub token suitable for Copilot API use → (token, source); ("", "") if none.
-
-    Raises ValueError if only a classic PAT is available.
-    """
-    any_env_var_set = False
+    """GitHub token for Copilot API use from the first env var holding a supported one → (token, source
+    env var name); ("", "") when none does."""
     for env_var in COPILOT_ENV_VARS:
-        val = os.getenv(env_var, "").strip()
+        val = (get_secret(env_var) or "").strip()
         if not val:
             continue
-        any_env_var_set = True
         valid, msg = validate_copilot_token(val)
         if valid:
             return val, env_var
         logger.warning("Token from %s is not supported: %s", env_var, msg)
-    # `gh auth token` fallback ONLY when no Copilot env var was set: an exported GITHUB_TOKEN
-    # (even a classic PAT) means the user intends *that* token; skipping also avoids a slow
-    # subprocess (up to 5s on Windows) on every cold start.
-    if any_env_var_set:
-        logger.debug("Copilot env var(s) set but none held a supported token; skipping `gh auth "
-                     "token` fallback to honor explicit env-var intent (and avoid the subprocess "
-                     "cost on cold start, #60800).")
-        return "", ""
-    token = _try_gh_cli_token()
-    if token:
-        valid, msg = validate_copilot_token(token)
-        if not valid:
-            raise ValueError(f"Token from `gh auth token` is not usable with Copilot. {msg}")
-        return token, "gh auth token"
     return "", ""
-
-
-def _gh_cli_candidates() -> list[str]:
-    """Every present ``gh`` in probe order: PATH first, then Homebrew and ``~/.local/bin``."""
-    from hermes_platform.resolver import locate_command
-    from hermes_platform.resolver.known_dirs import homebrew_dirs, user_local_bin
-
-    res = locate_command("gh", known_dirs=(*homebrew_dirs(), *user_local_bin()))
-    seen: list[str] = []
-    for cand in res.present:
-        if cand.value not in seen:
-            seen.append(cand.value)
-    return seen
-
-
-# ``gh auth token`` cache (misses too). With no credential store the probe blocks its full 5s on
-# keyring / D-Bus, and provider inventory probes Copilot several times per request — an uncached
-# miss made one settings page a 4×5s stall past Desktop's 15s IPC budget. Short TTL keeps a
-# fresh ``gh auth login`` discoverable.
-_GH_CLI_TOKEN_CACHE_TTL_SECONDS = 300.0
-_gh_cli_token_cache: tuple[float, Optional[str]] | None = None
-
-
-def _invalidate_gh_cli_token_cache() -> None:
-    """Reset the ``gh auth token`` probe cache (used by tests and re-auth flows)."""
-    global _gh_cli_token_cache
-    _gh_cli_token_cache = None
-
-
-def _try_gh_cli_token() -> Optional[str]:
-    """Token from ``gh auth token`` when available; the result (incl. a miss) is cached per TTL."""
-    global _gh_cli_token_cache
-    now = time.monotonic()
-    cache = _gh_cli_token_cache
-    if cache is not None and now - cache[0] < _GH_CLI_TOKEN_CACHE_TTL_SECONDS:
-        return cache[1]
-    token = _probe_gh_cli_token()
-    _gh_cli_token_cache = (now, token)
-    return token
-
-
-def _probe_gh_cli_token() -> Optional[str]:
-    """Uncached ``gh auth token`` subprocess probe (see ``_try_gh_cli_token``)."""
-    hostname = os.getenv("COPILOT_GH_HOST", "").strip()
-    # gh must not short-circuit on GITHUB_TOKEN / GH_TOKEN, nor prompt from a backend process.
-    clean_env = {k: v for k, v in os.environ.items() if k not in {"GITHUB_TOKEN", "GH_TOKEN"}}
-    clean_env.setdefault("GH_PROMPT_DISABLED", "1")
-    clean_env.setdefault("GH_NO_UPDATE_NOTIFIER", "1")
-    _popen_kwargs = {"creationflags": windows_hide_flags()} if IS_WINDOWS else {}
-    host_args = ["--hostname", hostname] if hostname else []
-    for gh_path in _gh_cli_candidates():
-        cmd = [gh_path, "auth", "token", *host_args]
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8',
-                                    errors='replace', timeout=5, env=clean_env,
-                                    stdin=subprocess.DEVNULL, **_popen_kwargs, check=False)
-        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-            logger.debug("gh CLI token lookup failed (%s): %s", gh_path, exc)
-            continue
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    return None
 
 
 _DEVICE_CODE_TERMINAL_ERRORS = {"expired_token": "  ✗ Device code expired. Please try again.",
@@ -537,8 +458,8 @@ def _reset_raw_degradation_warned() -> None:
     _RAW_DEGRADATION_WARNED.clear()
 
 
-# Every pool source the same token can be seeded under (gh_cli + one per env var).
-_POOL_SOURCES = ("gh_cli",) + tuple(f"env:{v}" for v in COPILOT_ENV_VARS)
+# Every pool source the same token can be seeded under (one per env var).
+_POOL_SOURCES = tuple(f"env:{v}" for v in COPILOT_ENV_VARS)
 
 _STALE_CREDENTIAL_MARKERS = (
     "model_not_available_for_integrator",
@@ -633,8 +554,6 @@ class CopilotCredentialsMixin:
             if token:
                 api_token, _base_url = get_copilot_api_token(token)
                 return api_token, source
-        except ValueError as exc:
-            logger.warning("Copilot token validation failed: %s", exc)
         except Exception:  # health: allow BLE001 S110 -- moved verbatim from core (hermes_cli/copilot_auth.py, credential_pool, client_lifecycle, auth.py)
             pass
         return "", ""
@@ -671,23 +590,20 @@ class CopilotCredentialsMixin:
 
     def seed_pool_credentials(self, *, is_suppressed: Callable[[str], bool],
                               explicitly_configured: Callable[[], bool]) -> list[dict]:
-        # Tokens are resolved dynamically via env vars or `gh auth token`; they don't live in the
-        # auth store. All-sources gate BEFORE any work: resolve_copilot_token() shells out and the
-        # exchange retries 3x with backoff (~35s worst case); a user who suppressed every copilot
-        # source must not pay that on every pool load.
+        # Env tokens are resolved dynamically; they don't live in the auth store. All-sources gate
+        # BEFORE any work: the exchange retries 3x with backoff (~35s worst case); a user who
+        # suppressed every copilot source must not pay that on every pool load.
         try:
             if all(is_suppressed(s) for s in _POOL_SOURCES):
                 return []
             token, source = resolve_copilot_token()
             if not token:
                 return []
-            # Exact match: a substring test would classify GH_TOKEN/GITHUB_TOKEN as gh_cli and
-            # bypass a user's per-env-var suppression.
-            source_name = "gh_cli" if source == "gh auth token" else f"env:{source}"
+            source_name = f"env:{source}"
             if is_suppressed(source_name):  # per-source gate BEFORE the network exchange
                 return []
             if not explicitly_configured():
-                # Only discovered here (ambient gh CLI login), not selected anywhere: no model is
+                # Only discovered here (an ambient env token), not selected anywhere: no model is
                 # routed to it, so the exchange — and its degradation warning on every pool load —
                 # buys nothing (#114740). Seed the raw token; selecting copilot re-seeds and exchanges.
                 api_token, enterprise_base_url = token, None
@@ -705,13 +621,13 @@ class CopilotCredentialsMixin:
             return []
 
     def remove_credential_source(self, source: str) -> Optional[tuple[tuple[str, ...], tuple[str, ...]]]:
-        """The same token is seeded as gh_cli AND env:<VAR> rows, so suppress every variant or the
-        duplicates resurrect the entry. gh CLI and shell state are left untouched."""
-        if source != "gh_cli" and not source.startswith("env:"):
+        """The same token can be seeded under several env:<VAR> rows, so suppress every variant or the
+        duplicates resurrect the entry. Shell state is left untouched."""
+        if not source.startswith("env:"):
             return None
         return _POOL_SOURCES, (
-            "Suppressed all copilot token sources (gh_cli + env vars) — they will not be re-seeded.",
-            "Note: Your gh CLI / shell environment is unchanged.",
+            "Suppressed all copilot env token sources — they will not be re-seeded.",
+            "Note: Your shell environment is unchanged.",
             "Run `hermes auth add copilot` to re-enable if needed.",
         )
 
@@ -742,35 +658,14 @@ class CopilotCredentialsMixin:
 
 
 def copilot_cli_auth_evidence() -> tuple[bool, Optional[str]]:
-    """Copilot CLI token stores readable without spawning it (env tokens, plaintext config, hosts.json)."""
-    # 1. Supported env tokens — the same vars the Copilot CLI itself honors.
+    """Positive sign-in evidence for copilot-acp without spawning the CLI: a supported env token (the
+    same vars the Copilot CLI honors). The CLI's own token files are not read (catalog rule 11), so a
+    CLI-only login reads as "managed by the GitHub Copilot CLI", never as signed out."""
     try:
         for env_var in COPILOT_ENV_VARS:
-            val = os.getenv(env_var, "").strip()
+            val = (get_secret(env_var) or "").strip()
             if val and validate_copilot_token(val)[0]:
                 return True, f"env: {env_var}"
     except Exception as exc:  # health: allow BLE001 -- moved verbatim from core (hermes_cli/copilot_auth.py, credential_pool, client_lifecycle, auth.py)
         logger.debug("copilot-acp env token evidence check failed: %s", exc)
-    # 2. The Copilot CLI's own plaintext token store (written by `copilot login` when no OS keychain
-    #    is available). The file is JSONC — strip //-comment lines before parsing.
-    try:
-        cli_config = os.path.expanduser("~/.copilot/config.json")
-        if os.path.isfile(cli_config):
-            with open(cli_config, "r", encoding="utf-8-sig", errors="ignore") as fh:
-                raw = "\n".join(
-                    line for line in fh.read().splitlines() if not line.lstrip().startswith("//"))
-            tokens = (json.loads(raw) if raw.strip() else {}).get("copilotTokens")
-            if isinstance(tokens, dict) and any(
-                isinstance(v, str) and v.strip() for v in tokens.values()):
-                return True, "~/.copilot/config.json"
-    except Exception as exc:  # health: allow BLE001 -- moved verbatim from core (hermes_cli/copilot_auth.py, credential_pool, client_lifecycle, auth.py)
-        logger.debug("copilot-acp CLI config evidence check failed: %s", exc)
-    # 3. Known on-disk GitHub Copilot credential stores (the same files models.py fingerprints).
-    for cred_path in ("~/.config/github-copilot/hosts.json", "~/.config/github-copilot/apps.json"):
-        try:
-            expanded = os.path.expanduser(cred_path)
-            if os.path.isfile(expanded) and os.path.getsize(expanded) > 2:
-                return True, cred_path
-        except OSError:
-            continue
     return False, None

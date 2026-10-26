@@ -8,9 +8,9 @@ from typing import Any
 
 
 def account_status() -> dict[str, Any]:
-    """Status for copilot-acp. ``logged_in`` only on positive evidence (env token or known on-disk
-    store); the CLI may hold its session in an OS keychain Hermes can't read, so the unverified
-    state reads "managed by the Copilot CLI" — never signed out."""
+    """Status for copilot-acp. ``logged_in`` only on positive evidence (a supported env token); the CLI
+    keeps its own login, which Hermes does not read (catalog rule 11), so the unverified state reads
+    "managed by the Copilot CLI" — never signed out."""
     try:
         from hermes_cli.auth import get_external_process_provider_status
         status = get_external_process_provider_status("copilot-acp") or {}
