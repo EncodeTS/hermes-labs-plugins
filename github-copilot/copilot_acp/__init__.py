@@ -86,8 +86,6 @@ copilot_acp = CopilotACPProfile(
     process_args=("--acp", "--stdio"),
     process_command_env_vars=("HERMES_COPILOT_ACP_COMMAND", "COPILOT_CLI_PATH"),
     process_args_env_var="HERMES_COPILOT_ACP_ARGS",
-    # A delegation.command no other profile claims has always run through this ACP client.
-    process_command_fallback=True,
     picker_catalog=acp_picker_catalog, static_models=("copilot-acp",),
     **SETUP_FIELDS, **PICKER_FIELDS, **AUTH_ROW_FIELDS,
 )
