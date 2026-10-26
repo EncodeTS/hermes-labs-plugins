@@ -99,14 +99,22 @@ def _copilot_obtain_token() -> bool:
 def model_flow_copilot(config, current_model="", args=None):
     """GitHub Copilot flow using env tokens or OAuth device code. The reasoning-effort step
     is the shared post-pick one in ``select_provider_and_model`` (Copilot's per-model level set
-    comes from ``setup_reasoning_efforts`` there)."""
+    comes from ``setup_reasoning_efforts`` there). The user picked Copilot here, so the flow may
+    exchange their token and read the account catalog before anything is saved."""
+    from .activation import copilot_user_flow
+
+    del config, args
+    with copilot_user_flow():
+        _model_flow_copilot(current_model)
+
+
+def _model_flow_copilot(current_model):
     from hermes_cli.auth import PROVIDER_REGISTRY, resolve_api_key_provider_credentials
     from hermes_cli.model_setup_flows_common import _persist_model, _pick_model_or_prompt, _say
     from hermes_cli.models import fetch_api_models
 
     from .wire import model_api_mode
 
-    del config, args
     provider_id = "copilot"
     pconfig = PROVIDER_REGISTRY[provider_id]
     creds = resolve_api_key_provider_credentials(provider_id)
