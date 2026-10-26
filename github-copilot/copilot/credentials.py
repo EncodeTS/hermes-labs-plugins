@@ -671,8 +671,9 @@ class CopilotCredentialsMixin:
 
     def missing_credentials_hint(self) -> str:
         """Appended to core's "No usable credentials found" message: since the rule-11 cut a
-        `gh auth login` alone no longer signs Hermes in, so name the plugin's own login."""
-        return "Run `hermes auth add copilot` to sign in, or set COPILOT_GITHUB_TOKEN."
+        `gh auth login` alone no longer signs Hermes in, so name the plugin's own login. The env vars
+        stay out: core's runtime message already lists them right before this hint."""
+        return "Run `hermes auth add copilot` to sign in."
 
 
 def copilot_cli_auth_evidence() -> tuple[bool, Optional[str]]:
