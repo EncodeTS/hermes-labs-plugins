@@ -8,7 +8,7 @@ PICKER_GROUP = ("copilot", "GitHub Copilot", "GitHub token API or copilot --acp 
 
 PICKER_FIELDS = dict(
     display_name="GitHub Copilot",
-    description="GitHub Copilot (Uses GITHUB_TOKEN or gh auth token)",
+    description="GitHub Copilot (Uses GITHUB_TOKEN or hermes auth add copilot)",
     picker_after="nvidia",
     picker_group=PICKER_GROUP,
     catalog_aliases=True,

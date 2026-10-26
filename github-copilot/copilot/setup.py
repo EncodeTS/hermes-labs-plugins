@@ -51,7 +51,7 @@ def _copilot_obtain_token() -> bool:
     from hermes_cli.config import save_env_value
     from hermes_cli.model_setup_flows_common import _ask, _note_setup_failure, _say
     _say("No GitHub token configured for GitHub Copilot.", "", "  Supported token types:",
-         "    → OAuth token (gho_*)          via `copilot login` or device code flow",
+         "    → OAuth token (gho_*/ghu_*)    via the device code flow below",
          "    → Fine-grained PAT (github_pat_*)  with Copilot Requests permission",
          "    → GitHub App token (ghu_*)     via environment variable",
          "    ✗ Classic PAT (ghp_*)          NOT supported by Copilot API", "", "  Options:",
@@ -95,7 +95,7 @@ def _copilot_obtain_token() -> bool:
 
 
 def model_flow_copilot(config, current_model="", args=None):
-    """GitHub Copilot flow using env vars, gh CLI, or OAuth device code. The reasoning-effort step
+    """GitHub Copilot flow using env tokens or OAuth device code. The reasoning-effort step
     is the shared post-pick one in ``select_provider_and_model`` (Copilot's per-model level set
     comes from ``setup_reasoning_efforts`` there)."""
     from hermes_cli.auth import PROVIDER_REGISTRY, resolve_api_key_provider_credentials
@@ -120,7 +120,7 @@ def model_flow_copilot(config, current_model="", args=None):
             from hermes_cli.env_loader import format_secret_source_suffix
             _say(f"  GitHub token: {api_key[:8]}... ✓ ({source}{format_secret_source_suffix(source)})", "")
         else:
-            _say("  GitHub token: ✓ (from `gh auth token`)" if source == "gh auth token" else "  GitHub token: ✓", "")
+            _say("  GitHub token: ✓", "")
 
     effective_base = pconfig.inference_base_url
     catalog, live_models, _normalize = _copilot_catalog(api_key)
@@ -149,7 +149,7 @@ def setup_reasoning_efforts(model: str) -> tuple:
 
 
 def account_status() -> dict[str, Any]:
-    """Card status from the env-token ladder only (no ``gh`` subprocess, no token exchange: this runs
+    """Card status from the env-token ladder only (no token exchange: this runs
     on every Accounts list). A token here is managed on the Keys tab, so it reads as ``env_var``."""
     from hermes_cli.config import get_env_value
     from .credentials import COPILOT_ENV_VARS, validate_copilot_token
