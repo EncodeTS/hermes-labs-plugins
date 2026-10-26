@@ -12,7 +12,7 @@ import providers
 providers.get_provider_profile("copilot")  # discovery imports the plugin package
 from github_copilot_plugin.copilot_acp.client import CopilotACPClient
 
-SIGN_IN = "Run `hermes auth add copilot` to sign in, or set COPILOT_GITHUB_TOKEN."
+SIGN_IN = "Run `hermes auth add copilot` to sign in."
 
 
 def test_runtime_resolution_without_a_token_names_the_plugin_login():
@@ -21,7 +21,9 @@ def test_runtime_resolution_without_a_token_names_the_plugin_login():
 
     with pytest.raises(AuthError) as excinfo:
         resolve_runtime_provider(requested="copilot")
-    assert str(excinfo.value).endswith(f". {SIGN_IN}")
+    message = str(excinfo.value)
+    assert message.endswith(f". {SIGN_IN}")
+    assert message.count("COPILOT_GITHUB_TOKEN") == 1  # core's own env list names it; the hint does not repeat it
 
 
 def test_readiness_without_a_token_names_the_plugin_login():
