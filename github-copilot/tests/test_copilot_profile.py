@@ -133,11 +133,14 @@ class TestCopilotOfflineAstraEfforts:
 def test_main_agent_github_clamp_never_escalates(monkeypatch, effort, expected):
     """The main-agent GitHub path shares the profile's clamp: unsupported levels step down to
     the nearest weaker listed one (max/ultra no longer fall all the way to medium)."""
-    from types import SimpleNamespace
+    from unittest.mock import MagicMock, patch
 
-    from agent.reasoning_params import ReasoningParamsMixin
+    from run_agent import AIAgent
 
     _patch_efforts(monkeypatch, ["minimal", "low", "medium", "high"])
-    agent = SimpleNamespace(model="gpt-5.4", reasoning_config={"enabled": True, "effort": effort},
-                            base_url="https://api.githubcopilot.com")
-    assert ReasoningParamsMixin._endpoint_reasoning_payload(agent) == {"effort": expected}
+    with patch("agent.process_bootstrap.OpenAI", return_value=MagicMock()):
+        agent = AIAgent(api_key="k", base_url="https://api.githubcopilot.com", provider="copilot",
+                        api_mode="chat_completions", model="gpt-5.4", quiet_mode=True, skip_context_files=True,
+                        skip_memory=True, enabled_toolsets=[],
+                        reasoning_config={"enabled": True, "effort": effort})
+    assert agent._endpoint_reasoning_payload() == {"effort": expected}
