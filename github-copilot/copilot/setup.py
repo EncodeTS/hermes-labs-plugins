@@ -80,7 +80,7 @@ def pick_model_or_prompt(model_list, prompt: str, **kwargs):
 def _copilot_obtain_token() -> bool:
     """No Copilot token yet: offer device-code login or manual entry. False = stop."""
     from hermes_cli.config import save_env_value
-    from hermes_cli.model_setup_flows_common import _note_setup_failure
+    from hermes_cli.model_setup import note_setup_failure
     say("No GitHub token configured for GitHub Copilot.", "", "  Supported token types:",
          "    → OAuth token (gho_*/ghu_*)    via the device code flow below",
          "    → Fine-grained PAT (github_pat_*)  with Copilot Requests permission",
@@ -101,7 +101,7 @@ def _copilot_obtain_token() -> bool:
             say("  Copilot token saved.", "")
         except Exception as exc:
             print(f"  Login failed: {exc}")
-            _note_setup_failure("auth")
+            note_setup_failure("auth")
             return False
         return True
     if choice == "2":
@@ -138,7 +138,7 @@ def model_flow_copilot(config, current_model="", args=None):
 
 
 def _model_flow_copilot(current_model):
-    from hermes_cli.model_setup_flows_common import _persist_model
+    from hermes_cli.model_setup import persist_model_selection
 
     from .catalog import COPILOT_BASE_URL
     from .wire import model_api_mode
@@ -151,8 +151,8 @@ def _model_flow_copilot(current_model):
         api_key, source = copilot_api_key()
     else:
         if source in {"GITHUB_TOKEN", "GH_TOKEN"}:
-            from hermes_cli.env_loader import format_secret_source_suffix
-            say(f"  GitHub token: {api_key[:8]}... ✓ ({source}{format_secret_source_suffix(source)})", "")
+            from agent.secret_scope import secret_source_label
+            say(f"  GitHub token: {api_key[:8]}... ✓ ({source}{secret_source_label(source)})", "")
         else:
             say("  GitHub token: ✓", "")
 
@@ -168,8 +168,8 @@ def _model_flow_copilot(current_model):
         print("No change.")
         return
     selected = _normalize(selected)
-    _persist_model(selected, provider_id, base_url=effective_base,
-                   api_mode=model_api_mode(selected, catalog=catalog, api_key=api_key))
+    persist_model_selection(selected, provider_id, base_url=effective_base,
+                            api_mode=model_api_mode(selected, catalog=catalog, api_key=api_key))
     print(f"Default model set to: {selected} (via GitHub Copilot)")
 
 
@@ -187,11 +187,11 @@ def account_status() -> dict[str, Any]:
     on every Accounts list). A token here is managed on the Keys tab, so it reads as ``env_var``."""
     from hermes_cli.config import get_env_value
     from .credentials import COPILOT_ENV_VARS, validate_copilot_token
-    from hermes_cli.env_loader import format_secret_source_suffix
+    from agent.secret_scope import secret_source_label
     for var in COPILOT_ENV_VARS:
         token = (get_env_value(var) or "").strip()
         if token and validate_copilot_token(token)[0]:
-            return {"logged_in": True, "source": "env_var", "source_label": f"{var}{format_secret_source_suffix(var)}",
+            return {"logged_in": True, "source": "env_var", "source_label": f"{var}{secret_source_label(var)}",
                     "token_preview": None, "expires_at": None, "has_refresh_token": False}
     return {"logged_in": False, "source": None}
 
