@@ -11,7 +11,7 @@ import logging
 import time
 from typing import Any, Optional
 
-from .helpers import ASTRA_EFFORTS, clamp_effort, get_json, is_astra_model
+from .helpers import ASTRA_EFFORTS, base_url_host_matches, clamp_effort, get_json, is_astra_model
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,8 @@ MODELS_DEV_ID = "github-copilot"
 
 COPILOT_BASE_URL = "https://api.githubcopilot.com"
 COPILOT_MODELS_URL = f"{COPILOT_BASE_URL}/models"
-# Base URLs whose ``/models`` probe is answered from the Copilot catalog (GitHub Models included).
-_CATALOG_BASE_URLS = (COPILOT_BASE_URL, "https://models.github.ai/inference", "https://models.inference.ai.azure.com")
+# Hosts (and subdomains) whose ``/models`` probe is answered from the Copilot catalog.
+_CATALOG_HOSTS = HOSTNAMES + METADATA_HOSTNAMES
 REASONING_EFFORTS_GPT5 = ["minimal", "low", "medium", "high"]
 REASONING_EFFORTS_O_SERIES = ["low", "medium", "high"]
 
@@ -225,7 +225,9 @@ def copilot_picker_catalog(force_refresh: bool = False) -> Optional[list[str]]:
 
 
 def _is_github_models_base_url(base_url: Optional[str]) -> bool:
-    return (base_url or "").strip().rstrip("/").lower().startswith(_CATALOG_BASE_URLS)
+    # Host match (never a URL prefix): the plan hosts api.<plan>.githubcopilot.com share the account's
+    # catalog, and ``https://api.githubcopilot.com.example`` is not GitHub.
+    return any(base_url_host_matches(str(base_url or "").strip(), host) for host in _CATALOG_HOSTS)
 
 
 # ─── context windows ───
