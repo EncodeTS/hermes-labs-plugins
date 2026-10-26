@@ -60,6 +60,14 @@ Copilot list.
 starts `copilot --acp --stdio` per request; point it elsewhere with `HERMES_COPILOT_ACP_COMMAND` (or
 `COPILOT_CLI_PATH`) and `HERMES_COPILOT_ACP_ARGS`.
 
+## Premium requests
+
+Copilot reads the `x-initiator` header to tell a request you started (`user`) from an agent follow-up
+(`agent`). By design, `copilot` sends `x-initiator: agent` on every request, except the first request of a
+user turn on the exact host `api.githubcopilot.com` (and GitHub Models, `models.github.ai`), which says
+`user`, as Hermes core did. Accounts whose token exchange hands out a plan host (`api.individual.`,
+`api.business.` or `api.enterprise.githubcopilot.com`) send `agent` on every request.
+
 ## What changed from the core version: no gh or Copilot CLI token files
 
 Hermes core's Copilot also picked up a token from `gh auth token` and from the gh / Copilot CLI token
