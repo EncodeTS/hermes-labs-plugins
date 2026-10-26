@@ -132,15 +132,12 @@ class TestCopilotOfflineAstraEfforts:
 ])
 def test_main_agent_github_clamp_never_escalates(monkeypatch, effort, expected):
     """The main-agent GitHub path shares the profile's clamp: unsupported levels step down to
-    the nearest weaker listed one (max/ultra no longer fall all the way to medium)."""
-    from unittest.mock import MagicMock, patch
-
-    from run_agent import AIAgent
+    the nearest weaker listed one (max/ultra no longer fall all the way to medium). Asserted on the
+    request body a real ``AIAgent.chat`` turn puts on the wire (the HTTP transport is a stand-in)."""
+    from conftest import offline_chat_turn
 
     _patch_efforts(monkeypatch, ["minimal", "low", "medium", "high"])
-    with patch("agent.process_bootstrap.OpenAI", return_value=MagicMock()):
-        agent = AIAgent(api_key="k", base_url="https://api.githubcopilot.com", provider="copilot",
-                        api_mode="chat_completions", model="gpt-5.4", quiet_mode=True, skip_context_files=True,
-                        skip_memory=True, enabled_toolsets=[],
-                        reasoning_config={"enabled": True, "effort": effort})
-    assert agent._endpoint_reasoning_payload() == {"effort": expected}
+    requests = offline_chat_turn("https://api.githubcopilot.com",
+                                 reasoning_config={"enabled": True, "effort": effort})
+    assert requests, "the turn sent no chat request"
+    assert requests[0].body.get("reasoning") == {"effort": expected}
