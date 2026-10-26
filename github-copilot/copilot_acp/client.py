@@ -40,6 +40,8 @@ class CopilotACPClient(ACPClient):
     placeholder_model = "copilot-acp"
     label = "Copilot ACP"
     missing_command_hint = "Install GitHub Copilot CLI or set HERMES_COPILOT_ACP_COMMAND/COPILOT_CLI_PATH."
+    # The CLI keeps its own login (Hermes never reads it); `copilot login` is its terminal sign-in command.
+    auth_required_hint = "Run `copilot login` to sign in to the GitHub Copilot CLI."
     unsupported_transport_hint = (
         "Either install a CLI that ships with --acp support (e.g. `@github/copilot` late 2025+), or set "
         "HERMES_COPILOT_ACP_COMMAND / HERMES_COPILOT_ACP_ARGS to a working pair.")
