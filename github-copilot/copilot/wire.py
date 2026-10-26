@@ -14,8 +14,10 @@ from .helpers import base_url_host_matches, base_url_hostname
 
 # Copilot's own API host family (individual, business and enterprise subdomains).
 _COPILOT_HOST = "githubcopilot.com"
-# Hosts that bill a request as premium when it carries ``x-initiator: user``.
-_INITIATOR_HOSTS = ("api.githubcopilot.com", "models.github.ai")
+# Hosts that bill a request as premium when it carries ``x-initiator: user``: the whole Copilot family
+# (the token exchange hands out api.individual./api.business./api.enterprise.githubcopilot.com) and
+# GitHub Models.
+_INITIATOR_HOSTS = (_COPILOT_HOST, "models.github.ai")
 
 
 def is_copilot_host(base_url: str) -> bool:
