@@ -19,7 +19,7 @@ import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from agent.secret_scope import get_secret
 from utils import atomic_json_write
@@ -596,23 +596,23 @@ class CopilotCredentialsMixin:
             entry.base_url = enterprise_base_url
         return api_token
 
-    def seed_pool_credentials(self, *, is_suppressed: Callable[[str], bool],
-                              explicitly_configured: Callable[[], bool]) -> list[dict]:
+    def seed_pool_credentials(self, *, suppressed_sources: frozenset,
+                              explicitly_configured: bool) -> list[dict]:
         # Env tokens are resolved dynamically; they don't live in the auth store. All-sources gate
         # BEFORE any work: the exchange retries 3x with backoff (~35s worst case); a user who
         # suppressed every copilot source must not pay that on every pool load.
         try:
-            if all(is_suppressed(s) for s in _POOL_SOURCES):
+            if all(s in suppressed_sources for s in _POOL_SOURCES):
                 return []
             token, source = resolve_copilot_token()
             if not token:
                 return []
             source_name = f"env:{source}"
-            if is_suppressed(source_name):  # per-source gate BEFORE the network exchange
+            if source_name in suppressed_sources:  # per-source gate BEFORE the network exchange
                 return []
             from .activation import github_calls_allowed
 
-            # Core's ``explicitly_configured()`` counts any profile env var, so a GH_TOKEN kept for
+            # Core's ``explicitly_configured`` counts any profile env var, so a GH_TOKEN kept for
             # other tools would pass it; the plugin's own check does not (``activation``).
             del explicitly_configured
             if not github_calls_allowed():

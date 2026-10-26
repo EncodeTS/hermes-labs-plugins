@@ -58,7 +58,7 @@ def test_no_hermes_credential_means_no_token_despite_cli_stores(cli_credential_s
         return (
             credentials.resolve_copilot_token(),
             copilot.resolve_api_key_secret(),
-            copilot.seed_pool_credentials(is_suppressed=lambda s: False, explicitly_configured=lambda: True),
+            copilot.seed_pool_credentials(suppressed_sources=frozenset(), explicitly_configured=True),
             _resolve_copilot_catalog_api_key(),
             acp.external_auth_evidence(),
             copilot.account_status(),
