@@ -37,7 +37,7 @@ def model_flow_copilot_acp(config, current_model="", args=None):
         PROVIDER_REGISTRY, get_external_process_provider_status, resolve_api_key_provider_credentials,
         resolve_external_process_provider_credentials)
     from hermes_cli.model_setup_flows_common import _finish_model, _pick_model_or_prompt, _say
-    from providers import get_provider_profile
+    from ..copilot import setup as copilot_setup
 
     del config, args
     provider_id = "copilot-acp"
@@ -60,8 +60,6 @@ def model_flow_copilot_acp(config, current_model="", args=None):
     catalog_api_key = ""
     with contextlib.suppress(Exception):
         catalog_api_key = resolve_api_key_provider_credentials("copilot").get("api_key", "")
-    # The GitHub catalog helpers belong to the sibling ``copilot`` profile (one plugin in the labs repo).
-    copilot_setup = _sibling_setup_module(get_provider_profile("copilot"))
     _catalog, catalog_ids, _normalize = copilot_setup._copilot_catalog(catalog_api_key)
     selected = _pick_model_or_prompt(
         copilot_setup._copilot_model_list(catalog_ids), "Model name: ", current_model=_normalize(current_model),
@@ -70,12 +68,6 @@ def model_flow_copilot_acp(config, current_model="", args=None):
         selected = _normalize(selected)
     _finish_model(selected, provider_id, f"Default model set to: {selected} (via {pconfig.name})",
                   base_url=effective_base, api_mode="chat_completions")
-
-
-def _sibling_setup_module(profile) -> Any:
-    """The ``setup`` module next to *profile*'s plugin package (it registered under its own import name)."""
-    import importlib
-    return importlib.import_module(f"{type(profile).__module__}.setup")
 
 
 SETUP_FIELDS: dict[str, Any] = {

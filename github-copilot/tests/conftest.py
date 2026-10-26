@@ -1,0 +1,97 @@
+"""Import the plugin as the package ``github_copilot_plugin`` (its profiles register in the process-wide
+provider registry, as on a core without bundled Copilot) and give every test an empty HERMES_HOME and
+HOME, with no GitHub token in the environment, so nothing reads or writes the real ~/.hermes.
+
+On a core that still bundles Copilot or lacks the provider seams the plugin is inert; every test not
+marked ``any_core`` is then skipped with the reason (hermes-agent#144788 adds the seams)."""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+
+import pytest
+
+PLUGIN_ROOT = Path(__file__).resolve().parents[1]
+# ``--import-mode=importlib`` keeps tests/ off sys.path; strip the repo root too, so a stray
+# top-level module there can never shadow core's packages.
+sys.path[:] = [p for p in sys.path if Path(p or ".").resolve() not in (PLUGIN_ROOT, PLUGIN_ROOT.parent)]
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # tests share helpers via ``from conftest import``
+
+TOKEN_ENV_VARS = ("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
+
+
+def load_plugin_package(name: str = "github_copilot_plugin"):
+    """Execute the plugin's ``__init__`` under *name* (the guard runs, profiles register when active)."""
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(
+        name, PLUGIN_ROOT / "__init__.py", submodule_search_locations=[str(PLUGIN_ROOT)])
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
+    return module
+
+
+import providers  # noqa: E402
+
+providers.get_provider_profile("openrouter")  # run discovery first: later registrations stay put
+PLUGIN = load_plugin_package()
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "any_core: runs even when the plugin is inert on this core")
+
+
+def pytest_collection_modifyitems(config, items):
+    if PLUGIN.ACTIVE:
+        return
+    skip = pytest.mark.skip(reason=f"plugin inert: {PLUGIN.inert_reason()} (needs hermes-agent#144788)")
+    for item in items:
+        if "any_core" not in item.keywords:
+            item.add_marker(skip)
+
+
+@pytest.fixture(autouse=True)
+def hermes_home(tmp_path, monkeypatch):
+    home = tmp_path / "hermes-home"
+    home.mkdir()
+    user_home = tmp_path / "home"
+    user_home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("HOME", str(user_home))
+    monkeypatch.setenv("USERPROFILE", str(user_home))
+    for var in (*TOKEN_ENV_VARS, "COPILOT_API_BASE_URL", "COPILOT_ACP_BASE_URL", "HERMES_COPILOT_ACP_COMMAND",
+                "COPILOT_CLI_PATH", "HERMES_COPILOT_ACP_ARGS", "HERMES_SESSION_KEY", "HERMES_SESSION_ID",
+                "HERMES_DELEGATED_CHILD_CONTEXT"):
+        monkeypatch.delenv(var, raising=False)
+    return home
+
+
+@pytest.fixture(autouse=True)
+def _reset_plugin_caches():
+    """Token-exchange and catalog caches are process-wide; no test may see another's."""
+    if not PLUGIN.ACTIVE:
+        yield
+        return
+    from github_copilot_plugin.copilot import catalog, credentials
+
+    def reset():
+        credentials._jwt_cache.clear()
+        credentials._exchange_failure_cache.clear()
+        credentials._reset_raw_degradation_warned()
+        catalog._github_model_catalog_cache = None
+        catalog._github_model_catalog_cache_key = None
+        catalog._github_model_catalog_cache_time = 0.0
+        catalog._copilot_context_cache = {}
+        catalog._copilot_context_cache_time = 0.0
+        catalog._copilot_context_cache_key = None
+
+    reset()
+    yield
+    reset()
