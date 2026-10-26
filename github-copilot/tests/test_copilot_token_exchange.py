@@ -75,9 +75,11 @@ class TestCallerIntegration:
 
     @patch.object(copilot_credentials, "resolve_copilot_token", return_value=("gho_raw", "GH_TOKEN"))
     @patch.object(copilot_credentials, "get_copilot_api_token", return_value=("exchanged_jwt", None))
-    def test_auth_resolve_uses_exchange(self, mock_exchange, mock_resolve):
+    def test_auth_resolve_uses_exchange(self, mock_exchange, mock_resolve, hermes_home):
         from hermes_cli.auth import _resolve_api_key_provider_secret
 
+        # A home that chose Copilot (activation gate); unconfigured homes are test_activation_gate.py.
+        (hermes_home / "config.yaml").write_text("model:\n  provider: copilot\n  default: gpt-5.4\n")
         # Create a minimal pconfig mock
         pconfig = MagicMock()
         token, source = _resolve_api_key_provider_secret("copilot", pconfig)

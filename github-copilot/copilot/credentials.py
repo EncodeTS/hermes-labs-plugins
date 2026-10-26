@@ -548,8 +548,15 @@ class CopilotCredentialsMixin:
     """Fills the generic credential seams of ``providers.base.ProviderProfile`` for Copilot."""
 
     def resolve_api_key_secret(self) -> tuple[str, str]:
+        """The exchanged Copilot token. A home that never chose Copilot gets the raw env token (it
+        still reads as present) and GitHub is not called: provider listings resolve this for every
+        provider with a token in reach (``activation``)."""
+        from .activation import github_calls_allowed
+
         try:
             token, source = resolve_copilot_token()
+            if token and not github_calls_allowed():
+                return token, source
             if token:
                 api_token, _base_url = get_copilot_api_token(token)
                 return api_token, source
@@ -560,10 +567,12 @@ class CopilotCredentialsMixin:
     def runtime_base_url(self, *, api_key: str, default: str, env_url: str) -> str:
         """The API base comes from the token-exchange response (endpoints.api, proxy-ep fallback),
         authoritative for Enterprise / proxied accounts; falls back to the registry default."""
+        from .activation import github_calls_allowed
+
         base_url = env_url.rstrip("/") if env_url else default
         try:
             raw_token, _ = resolve_copilot_token()
-            if raw_token:
+            if raw_token and github_calls_allowed():
                 resolved = (get_copilot_api_token(raw_token)[1] or "").strip()
                 if resolved:
                     base_url = resolved
@@ -601,7 +610,12 @@ class CopilotCredentialsMixin:
             source_name = f"env:{source}"
             if is_suppressed(source_name):  # per-source gate BEFORE the network exchange
                 return []
-            if not explicitly_configured():
+            from .activation import github_calls_allowed
+
+            # Core's ``explicitly_configured()`` counts any profile env var, so a GH_TOKEN kept for
+            # other tools would pass it; the plugin's own check does not (``activation``).
+            del explicitly_configured
+            if not github_calls_allowed():
                 # Only discovered here (an ambient env token), not selected anywhere: no model is
                 # routed to it, so the exchange — and its degradation warning on every pool load —
                 # buys nothing (#114740). Seed the raw token; selecting copilot re-seeds and exchanges.

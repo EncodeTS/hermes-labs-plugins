@@ -213,8 +213,12 @@ def copilot_picker_catalog(force_refresh: bool = False) -> Optional[list[str]]:
     """The account's live catalog ids, else the curated list marked as a placeholder."""
     from hermes_cli.models import CuratedFallbackModels, _PROVIDER_MODELS
 
+    from .activation import github_calls_allowed
+
     try:
-        live = _fetch_github_models(_resolve_copilot_catalog_api_key())
+        # Provider listings (``hermes status``, pickers, Desktop) warm every listed provider's
+        # catalog; a home that never chose Copilot keeps the curated list and GitHub is not called.
+        live = _fetch_github_models(_resolve_copilot_catalog_api_key()) if github_calls_allowed() else None
         if live:
             return live
     except Exception:  # the picker degrades to the curated list on any catalog failure

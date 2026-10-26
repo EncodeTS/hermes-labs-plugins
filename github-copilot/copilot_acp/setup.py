@@ -32,14 +32,22 @@ def account_status() -> dict[str, Any]:
 
 
 def model_flow_copilot_acp(config, current_model="", args=None):
-    """GitHub Copilot ACP flow using the local Copilot CLI."""
+    """GitHub Copilot ACP flow using the local Copilot CLI (a user-started Copilot flow: the picker may
+    read the account catalog)."""
+    from ..copilot.activation import copilot_user_flow
+
+    del config, args
+    with copilot_user_flow():
+        _model_flow_copilot_acp(current_model)
+
+
+def _model_flow_copilot_acp(current_model):
     from hermes_cli.auth import (
         PROVIDER_REGISTRY, get_external_process_provider_status, resolve_api_key_provider_credentials,
         resolve_external_process_provider_credentials)
     from hermes_cli.model_setup_flows_common import _finish_model, _pick_model_or_prompt, _say
     from ..copilot import setup as copilot_setup
 
-    del config, args
     provider_id = "copilot-acp"
     pconfig = PROVIDER_REGISTRY[provider_id]
     status = get_external_process_provider_status(provider_id)
