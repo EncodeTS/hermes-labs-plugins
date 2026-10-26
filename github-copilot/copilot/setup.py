@@ -7,6 +7,8 @@ Core reaches these only through the generic ``ProviderProfile`` setup fields (``
 from __future__ import annotations
 
 import contextlib
+import sys
+import uuid
 from typing import Any
 
 # Device-code endpoints live on the GitHub web host; tests point this at a local fake.
@@ -211,6 +213,42 @@ def save_device_login(token: str) -> None:
     save_env_value(_TOKEN_ENV_VAR, token)
 
 
+# ── `hermes auth add copilot` ─────────────────────────────────────────────────
+
+
+def _has_terminal() -> bool:
+    # Both ends: Windows reports a NUL stdin as a tty, so a piped run would otherwise block on the poll.
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def auth_handler(action: str, args: Any) -> bool:
+    """``hermes auth add copilot`` signs in with GitHub (device code, the same OAuth app as setup) and
+    pools the GitHub token; the exchange runs when a request needs it. ``--api-key`` / ``--type
+    api-key``, every other action and runs without a terminal stay with core's built-in handling."""
+    if action != "add" or getattr(args, "api_key", None):
+        return False
+    if str(getattr(args, "auth_type", "") or "").strip().lower() in ("api-key", "api_key") or not _has_terminal():
+        return False
+    from agent.credential_pool import AUTH_TYPE_API_KEY, PooledCredential, load_pool
+
+    from .catalog import COPILOT_BASE_URL
+    from .credentials import copilot_device_code_login, validate_copilot_token
+
+    token = copilot_device_code_login()
+    if not token:
+        raise SystemExit("GitHub sign-in did not complete; nothing was saved.")
+    valid, msg = validate_copilot_token(token)
+    if not valid:
+        raise SystemExit(msg)
+    pool = load_pool("copilot")
+    label = (getattr(args, "label", None) or "").strip() or f"github-device-{len(pool.entries()) + 1}"
+    pool.add_entry(PooledCredential(
+        provider="copilot", id=uuid.uuid4().hex[:6], label=label, auth_type=AUTH_TYPE_API_KEY, priority=0,
+        source="manual:device_code", access_token=token, base_url=COPILOT_BASE_URL))
+    print(f'Added copilot credential #{len(pool.entries())}: "{label}"')
+    return True
+
+
 SETUP_FIELDS: dict[str, Any] = {
     "model_setup_flow": model_flow_copilot,
     "setup_reasoning_efforts": setup_reasoning_efforts,
@@ -219,4 +257,5 @@ SETUP_FIELDS: dict[str, Any] = {
     "start_device_login": start_device_login,
     "poll_device_login": poll_device_login,
     "save_device_login": save_device_login,
+    "auth_handler": auth_handler,
 }
