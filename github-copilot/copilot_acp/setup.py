@@ -47,7 +47,7 @@ def model_flow_copilot_acp(config, current_model="", args=None):
 
 
 def _model_flow_copilot_acp(current_model):
-    from hermes_cli.model_setup_flows_common import _persist_model
+    from hermes_cli.model_setup import persist_model_selection
     from ..copilot import setup as copilot_setup
     from ..copilot.helpers import say
 
@@ -75,7 +75,7 @@ def _model_flow_copilot_acp(current_model):
         print("No change.")
         return
     selected = _normalize(selected)
-    _persist_model(selected, provider_id, base_url=effective_base, api_mode="chat_completions")
+    persist_model_selection(selected, provider_id, base_url=effective_base, api_mode="chat_completions")
     print(f"Default model set to: {selected} (via GitHub Copilot ACP)")
 
 
