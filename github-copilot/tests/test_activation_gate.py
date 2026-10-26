@@ -55,8 +55,12 @@ def test_ambient_github_token_never_reaches_github(hermes_home, monkeypatch, git
 
     models, creds = _touch_every_listing_path()
 
+    from hermes_cli.models import CuratedFallbackModels
+
     assert github_calls == []
-    assert "gpt-4.1" in models  # the curated list still fills the picker
+    # The curated list still fills the picker, marked as a placeholder the model cache never stores
+    # as the account's catalog.
+    assert "gpt-4.1" in models and isinstance(models, CuratedFallbackModels)
     assert creds["api_key"] == AMBIENT  # present (raw), just never exchanged
 
 

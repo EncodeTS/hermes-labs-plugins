@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from utils import base_url_host_matches
+from .helpers import base_url_host_matches
 
 _COPILOT_HOST = "githubcopilot.com"  # api.githubcopilot.com plus the api.<plan>.githubcopilot.com variants
 

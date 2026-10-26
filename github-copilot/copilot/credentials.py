@@ -664,7 +664,7 @@ class CopilotCredentialsMixin:
     def request_rejection_hint(self, *, status_code: Optional[int], base_url: str) -> tuple[str, ...]:
         """GitHub Models free tier caps requests at 8K tokens, under the system prompt + tool schema
         floor; compression can't help, so say so."""
-        from utils import base_url_host_matches
+        from .helpers import base_url_host_matches
         if status_code == 413 and base_url_host_matches(base_url, _GITHUB_MODELS_FREE_TIER_HOST):
             return _GITHUB_MODELS_HINT
         return ()

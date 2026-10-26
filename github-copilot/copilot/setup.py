@@ -11,6 +11,8 @@ import sys
 import uuid
 from typing import Any
 
+from .helpers import ask, get_json, say
+
 # Device-code endpoints live on the GitHub web host; tests point this at a local fake.
 _DEVICE_LOGIN_BASE = "https://github.com"
 _DEVICE_VERIFICATION_URL = "https://github.com/login/device"
@@ -22,15 +24,14 @@ _DEVICE_ERRORS = {"expired_token": ("expired", "Device code expired. Please try 
 
 def _copilot_model_list(live_ids) -> list:
     """Live GitHub Copilot ids, or the curated fallback with a warning."""
-    from hermes_cli.model_setup_flows_common import _say
-    from hermes_cli.models import _PROVIDER_MODELS
+    from .catalog import STATIC_MODELS
     if live_ids:
         model_list = [model_id for model_id in live_ids if model_id]
         print(f"  Found {len(model_list)} model(s) from GitHub Copilot")
         return model_list
-    model_list = _PROVIDER_MODELS.get("copilot", [])
+    model_list = list(STATIC_MODELS)
     if model_list:
-        _say("  ⚠ Could not auto-detect models from GitHub Copilot — showing defaults.",
+        say("  ⚠ Could not auto-detect models from GitHub Copilot — showing defaults.",
              '    Use "Enter custom model name" if you do not see your model.')
     return model_list
 
@@ -48,17 +49,45 @@ def _copilot_catalog(api_key: str):
     return catalog, ids, _normalize
 
 
+def copilot_api_key() -> tuple[str, str]:
+    """``(Copilot API token, source env var)`` for a setup flow: the first supported env token,
+    exchanged (the raw token when the exchange is unavailable); ``("", "")`` when there is none."""
+    from .credentials import get_copilot_api_token, resolve_copilot_token
+    raw, source = resolve_copilot_token()
+    return (get_copilot_api_token(raw)[0], source) if raw else ("", "")
+
+
+def _raw_model_ids(api_key: str) -> list:
+    """Every id ``/models`` lists for this token (no chat filtering): the last resort when the
+    filtered catalog came back empty."""
+    from .catalog import COPILOT_MODELS_URL, _payload_items
+    try:
+        items = _payload_items(get_json(COPILOT_MODELS_URL, timeout=5.0,
+                                        headers={"Authorization": f"Bearer {api_key}"} if api_key else {}))
+    except Exception:  # the picker falls back to the curated list
+        return []
+    return [str(item.get("id")) for item in items if item.get("id")]
+
+
+def pick_model_or_prompt(model_list, prompt: str, **kwargs):
+    """Hermes' radio picker when *model_list* is non-empty, else a free-text answer (None on Ctrl-C/EOF)."""
+    if model_list:
+        from hermes_cli.auth_model_picker import prompt_model_selection
+        return prompt_model_selection(model_list, **kwargs)
+    return ask(prompt, cancel_msg=None)
+
+
 def _copilot_obtain_token() -> bool:
     """No Copilot token yet: offer device-code login or manual entry. False = stop."""
     from hermes_cli.config import save_env_value
-    from hermes_cli.model_setup_flows_common import _ask, _note_setup_failure, _say
-    _say("No GitHub token configured for GitHub Copilot.", "", "  Supported token types:",
+    from hermes_cli.model_setup_flows_common import _note_setup_failure
+    say("No GitHub token configured for GitHub Copilot.", "", "  Supported token types:",
          "    → OAuth token (gho_*/ghu_*)    via the device code flow below",
          "    → Fine-grained PAT (github_pat_*)  with Copilot Requests permission",
          "    → GitHub App token (ghu_*)     via environment variable",
          "    ✗ Classic PAT (ghp_*)          NOT supported by Copilot API", "", "  Options:",
          "    1. Login with GitHub (OAuth device code flow)", "    2. Enter a token manually", "    3. Cancel", "")
-    choice = _ask("  Choice [1-3]: ", raw=True, cancel_msg="")
+    choice = ask("  Choice [1-3]: ", cancel_msg="")
     if choice is None:
         return False
     if choice == "1":
@@ -69,14 +98,14 @@ def _copilot_obtain_token() -> bool:
                 print("  Login cancelled or failed.")
                 return False
             save_env_value(_TOKEN_ENV_VAR, token)
-            _say("  Copilot token saved.", "")
+            say("  Copilot token saved.", "")
         except Exception as exc:
             print(f"  Login failed: {exc}")
             _note_setup_failure("auth")
             return False
         return True
     if choice == "2":
-        new_key = _ask("  Token (COPILOT_GITHUB_TOKEN): ", secret=True, cancel_msg="")
+        new_key = ask("  Token (COPILOT_GITHUB_TOKEN): ", secret=True, cancel_msg="")
         if new_key is None:
             return False
         if not new_key:
@@ -90,7 +119,7 @@ def _copilot_obtain_token() -> bool:
                 print(f"  ✗ {msg}")
                 return False
         save_env_value(_TOKEN_ENV_VAR, new_key)
-        _say("  Token saved.", "")
+        say("  Token saved.", "")
         return True
     print("  Cancelled.")
     return False
@@ -109,35 +138,30 @@ def model_flow_copilot(config, current_model="", args=None):
 
 
 def _model_flow_copilot(current_model):
-    from hermes_cli.auth import PROVIDER_REGISTRY, resolve_api_key_provider_credentials
-    from hermes_cli.model_setup_flows_common import _persist_model, _pick_model_or_prompt, _say
-    from hermes_cli.models import fetch_api_models
+    from hermes_cli.model_setup_flows_common import _persist_model
 
+    from .catalog import COPILOT_BASE_URL
     from .wire import model_api_mode
 
     provider_id = "copilot"
-    pconfig = PROVIDER_REGISTRY[provider_id]
-    creds = resolve_api_key_provider_credentials(provider_id)
-    api_key = creds.get("api_key", "")
-    source = creds.get("source", "")
+    api_key, source = copilot_api_key()
     if not api_key:
         if not _copilot_obtain_token():
             return
-        creds = resolve_api_key_provider_credentials(provider_id)
-        api_key = creds.get("api_key", "")
+        api_key, source = copilot_api_key()
     else:
         if source in {"GITHUB_TOKEN", "GH_TOKEN"}:
             from hermes_cli.env_loader import format_secret_source_suffix
-            _say(f"  GitHub token: {api_key[:8]}... ✓ ({source}{format_secret_source_suffix(source)})", "")
+            say(f"  GitHub token: {api_key[:8]}... ✓ ({source}{format_secret_source_suffix(source)})", "")
         else:
-            _say("  GitHub token: ✓", "")
+            say("  GitHub token: ✓", "")
 
-    effective_base = pconfig.inference_base_url
+    effective_base = COPILOT_BASE_URL
     catalog, live_models, _normalize = _copilot_catalog(api_key)
     if not catalog:
-        live_models = fetch_api_models(api_key, effective_base)
+        live_models = _raw_model_ids(api_key)
 
-    selected = _pick_model_or_prompt(
+    selected = pick_model_or_prompt(
         _copilot_model_list(live_models), "Model name: ", current_model=_normalize(current_model),
         confirm_provider=provider_id, confirm_base_url=effective_base, confirm_api_key=api_key)
     if not selected:
@@ -146,7 +170,7 @@ def _model_flow_copilot(current_model):
     selected = _normalize(selected)
     _persist_model(selected, provider_id, base_url=effective_base,
                    api_mode=model_api_mode(selected, catalog=catalog, api_key=api_key))
-    print(f"Default model set to: {selected} (via {pconfig.name})")
+    print(f"Default model set to: {selected} (via GitHub Copilot)")
 
 
 def setup_reasoning_efforts(model: str) -> tuple:
